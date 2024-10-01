@@ -1,0 +1,151 @@
+---
+title: "Feature Selection"
+author: "Jinbo Niu"
+date: "2024-08-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{R}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(spdep)
+```
+
+
+```{r}
+#health_outcome <- read.csv("2023 CDC health outcome.csv")
+svi <- read.csv("Data/SVI_2020_US (1).csv")
+acs <- read.csv("Data/ACS full.csv")
+adi <- readRDS("Data/tract_adi.RDS")
+air_pollutant <- readRDS("Data/air_pollutant_2021.rds")
+```
+
+```{r}
+svi_data <- svi|>
+  dplyr::select(FIPS,starts_with("E_"))|>
+  group_by(FIPS)
+
+acs_data <- acs|>
+  dplyr::select(-ADI_raw,-ADI_perc)|>
+  group_by(GEOID)
+
+adi_data <- adi|>
+  mutate(GEOID = as.numeric(paste0(STATEFP, COUNTYFP,TRACTCE)))|>
+  dplyr::select(-STATEFP,-COUNTYFP)|>
+  group_by(GEOID)
+
+air_pollutant_data <- air_pollutant|>
+  select(outcome,prevalence,locationid,ozone_8_hour_2015,no2_annual_1971,pm25_annual_2012)|>
+  group_by(locationid)
+```
+
+
+```{r}
+sf_df <- air_pollutant_data|>
+  group_by(locationid)|>
+  left_join(svi_data,by = c('locationid' = "FIPS"))|>
+  distinct()|>
+  na.omit()
+
+head(sf_df)
+```
+
+```{r}
+df_full <- sf_df|>
+  st_drop_geometry()
+glimpse(df_full)
+```
+
+
+## Geographical autocorrelation
+
+```{r}
+us_tract <- tracts(cb = TRUE, year = 2021)
+head(us_tract)
+```
+
+```{r}
+us_tract$GEOID <- as.numeric(us_tract$GEOID)
+
+sf_df_full <- df_full|>
+  left_join(us_tract,by = c("locationid" = "GEOID"))|>
+  st_as_sf()|>
+  st_transform(crs = 4326)
+
+head(sf_df_full)
+```
+
+```{r}
+compute_morans_i <- function(data) {
+  sf_data <- st_sf(geometry = data$geometry)
+  
+  if (any(is.na(data$prevalence))) {
+    warning("Data contains NA values in the prevalence column.")
+    return(data.frame(moran_i = NA, p_value = NA, outcome = unique(data$outcome), stringsAsFactors = FALSE))
+  }
+  
+  nb <- poly2nb(sf_data, queen = TRUE)
+  if (length(nb) == 0) {
+    warning("No neighbors found.")
+    return(data.frame(moran_i = NA, p_value = NA, outcome = unique(data$outcome), stringsAsFactors = FALSE))
+  }
+  
+  nbw <- nb2listw(nb, style = "W", zero.policy = TRUE)
+  
+  moran_test <- tryCatch({
+    moran.test(data$prevalence, nbw, alternative = "greater")
+  }, error = function(e) {
+    warning(paste("Error in Moran's I calculation:", e$message))
+    return(NULL)
+  })
+  
+  if (is.null(moran_test) || is.null(moran_test$estimate["Moran I statistic"])) {
+    return(data.frame(moran_i = NA, p_value = NA, outcome = unique(data$outcome), stringsAsFactors = FALSE))
+  }
+  
+  moran_i <- moran_test$estimate["Moran I statistic"]
+  p_value <- moran_test$p.value
+
+  
+  result_df <- data.frame(
+    moran_i = moran_i,
+    p_value = p_value,
+    outcome = unique(data$outcome),
+    stringsAsFactors = FALSE,
+    row.names = NULL
+  )
+  
+  return(result_df)
+}
+```
+
+```{r}
+outcomes <- unique(sf_df_full$outcome)
+
+results_df <- data.frame(outcome = character(), moran_i = numeric(), p_value = character(), stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+ 
+  data_subset <- sf_df_full[sf_df_full$outcome == outcome, ]
+  
+  result <- compute_morans_i(data_subset)
+  
+  if (!is.null(result)) {
+    result$outcome <- outcome  
+    results_df <- rbind(results_df, result)  
+  }
+}
+
+print(results_df)
+```
+
+```{r}
+
+
+```

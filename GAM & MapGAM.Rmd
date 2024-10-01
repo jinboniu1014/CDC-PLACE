@@ -1,0 +1,107 @@
+---
+title: "GAM and MAPGAM"
+author: "Jinbo Niu"
+date: "2024-09-13"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+library(mgcv)
+library(gam)
+library(MapGAM)
+```
+
+```{r}
+df_geo <- read.csv("Data/df_geo.csv")
+head(df_geo)
+```
+
+```{r}
+formulas <- read.csv("Data/Outcomes/formulas.csv")
+formulas
+```
+
+## GAM
+
+```{R}
+gam_df <- data.frame(outcome = character(), R2 = numeric(), 
+                                            MSE = numeric() , 
+                                            stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+  cat("GAM for outcome:", outcome, "\n")
+  
+  # Filter data for the current outcome
+  outcome_data <- df_geo[df_geo$outcome == outcome, ]
+  
+  #formula
+  formula_row <- formulas[formulas$outcome == outcome, ]
+  formula <- as.formula(formula_row$formula)
+  gam_updated_formula <- update(formula, . ~ . + s(x))
+  
+  model_outcome_gam <- gam(gam_updated_formula,
+               data = outcome_data,family = gaussian())
+  
+  #metrics
+  model_y_pred_gam <- predict(object = model_outcome_gam,newdata = outcome_data)
+  R2_gam <- calculateR2(model_y_pred_mapgam,outcome_data$prevalence)
+  mse_gam <- calculate_mse(model_y_pred_mapgam,outcome_data$prevalence)
+
+  # Append the outcome and bandwidth to the data frame
+  gam_df <- rbind(gam_df, data.frame(outcome = outcome, R2 = R2_gam, 
+                                            MSE = mse_gam , 
+                                            stringsAsFactors = FALSE))
+}
+
+# Display the final data frame
+print(gam_df)
+```
+
+## MapGAM
+
+```{R}
+map_gam_df <- data.frame(outcome = character(), R2 = numeric(), 
+                                            MSE = numeric() , 
+                                            stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+  cat("MapGAM for outcome:", outcome, "\n")
+  
+  # Filter data for the current outcome
+  outcome_data <- df_geo[df_geo$outcome == outcome, ]
+  
+  #formula
+  formula_row <- formulas[formulas$outcome == outcome, ]
+  formula <- as.formula(formula_row$formula)
+  mapgam_formula <- update(formula, . ~ . + lo(X, Y))
+  
+  #span
+  span <- optspan(mapgam_formula, outcome_data, spans = seq(0.05, 0.95, by = 0.05), m ="adjusted",
+  family = gaussian(), verbose =TRUE, degree = 1)
+  
+  updated_formula <- update(formula, . ~ . + lo(X, Y, span = span))
+  
+  model_outcome_mapgam <- gam(updated_formula,
+               data = outcome_data,family = gaussian())
+  
+  #metrics
+  model_y_pred_mapgam <- predict(object = model_outcome_mapgam,
+                                 newdata = outcome_data)
+  R2_mapgam <- calculateR2(model_y_pred_mapgam,outcome_data$prevalence)
+  mse_mapgam <- calculate_mse(model_y_pred_mapgam,outcome_data$prevalence)
+
+  # Append the outcome and bandwidth to the data frame
+  map_gam_df <- rbind(map_gam_df, data.frame(outcome = outcome, R2 = R2_mapgam, 
+                                            MSE = mse_mapgam , 
+                                            stringsAsFactors = FALSE))
+}
+
+# Display the final data frame
+print(map_gam_df)
+```
+

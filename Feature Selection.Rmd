@@ -1,0 +1,571 @@
+---
+title: "Feature Selection"
+author: "Jinbo Niu"
+date: "2024-08-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{R,warning = FALSE}
+library(tidyverse)
+library(sf)
+library(tigris)
+library(spdep)
+library(caret)
+library(car)
+```
+
+
+```{r}
+#health_outcome <- read.csv("2023 CDC health outcome.csv")
+svi <- read.csv("Data/SVI_2020_US (1).csv")
+acs <- read.csv("Data/ACS full.csv")
+adi <- readRDS("Data/tract_adi.RDS")
+air_pollutant <- readRDS("Data/air_pollutant_2021.rds")
+```
+
+```{r}
+svi_data <- svi|>
+  dplyr::select(FIPS,starts_with("E_"))|>
+  dplyr::select(-E_AFAM,-E_HISP,-E_ASIAN,-E_AIAN,-E_NHPI,-E_TWOMORE,-E_OTHERRACE)|>
+  group_by(FIPS)
+
+acs_data <- acs|>
+  dplyr::select(-ADI_raw,-ADI_perc)|>
+  dplyr::select(GEOID,medinc,medren,medmor,plu,own,white_percent)|>
+  group_by(GEOID)|>
+  distinct()
+
+#adi_data <- adi|>
+#  mutate(GEOID = as.numeric(paste0(STATEFP, COUNTYFP,TRACTCE)))|>
+#  dplyr::select(-STATEFP,-COUNTYFP)|>
+#  group_by(GEOID)
+
+air_pollutant_data <- air_pollutant|>
+  dplyr::select(outcome,prevalence,locationid,ozone_8_hour_2015,no2_annual_1971,pm25_annual_2012)|>
+  group_by(locationid)
+```
+
+
+```{r}
+sf_df <- air_pollutant_data|>
+  group_by(locationid)|>
+  left_join(svi_data,by = c('locationid' = "FIPS"))|>
+  left_join(acs_data,by = c('locationid' = "GEOID"))|>
+  distinct()|>
+  na.omit()
+```
+
+```{r}
+df_full <- sf_df|>
+  st_drop_geometry()
+
+head(df_full)
+```
+
+
+## Full OLS after removeal of outliers and removal of variables whose vifs are higher than 5.
+
+```{r}
+predictors <- setdiff(names(df_full), c("outcome", "prevalence","locationid"))
+
+formula <- prevalence ~ ozone_8_hour_2015 + no2_annual_1971 + 
+    pm25_annual_2012 + E_TOTPOP + E_HU + E_HH + E_POV150 + E_UNEMP + 
+    E_HBURD + E_NOHSDP + E_UNINSUR + E_AGE65 + E_AGE17 + E_DISABL + 
+    E_SNGPNT + E_LIMENG + E_MINRTY + E_MUNIT + E_MOBILE + E_CROWD + 
+    E_NOVEH + E_GROUPQ + E_DAYPOP + E_NOINT + medinc + medren + medmor + plu+own + white_percent
+```
+
+```{r}
+# Function to remove multicollinear variables with VIF > 5 and handle aliased coefficients
+remove_multicollinearity <- function(df, formula) {
+  # Initial model fitting
+  model <- lm(formula, data = df)
+  
+  # Check for aliased coefficients
+  aliased_vars <- attributes(alias(model)$Complete)$dimnames[[1]]
+  
+  # If there are aliased variables, update the formula to remove them
+  if (!is.null(aliased_vars)) {
+    formula <- update.formula(formula, paste(". ~ . -", paste(aliased_vars, collapse = " - ")))
+    
+    # Refit the model with the updated formula
+    model <- lm(formula, data = df)
+  }
+  
+  # Calculate VIF values
+  vif_values <- vif(model)
+  
+  # Continue removing variables with VIF > 5
+  while (any(vif_values > 5, na.rm = TRUE)) {
+    high_vif <- which(vif_values > 5)
+    variable_to_remove <- names(vif_values)[high_vif[1]]  # Remove the first variable with VIF > 5
+    
+    # Update the formula by removing the variable with high VIF
+    formula <- update.formula(formula, paste(". ~ . -", variable_to_remove))
+    
+    # Refit the model with the updated formula
+    model <- lm(formula, data = df)
+    
+    # Recalculate VIF values
+    vif_values <- vif(model)
+  }
+  
+  return(formula)
+}
+
+```
+
+```{r}
+process_ols_model <- function(df, outcome_name) {
+  # Store the initial variable names
+  initial_variables <- names(df)[!names(df) %in% c("outcome", "prevalence","locationid")] # Adjust this as necessary
+  
+  # Apply the function to remove multicollinear variables
+  updated_formula <- remove_multicollinearity(df, formula)
+
+  # Fit the initial model
+  model <- tryCatch(
+    lm(updated_formula, data = df),
+    error = function(e) {
+      cat("Error in model fitting:", e$message, "\n")
+      return(NULL)
+    }
+  )
+  
+  # Proceed only if the model is successfully fitted
+  if (!is.null(model)) {
+    # Calculate Cook's distance
+    cook_dist <- cooks.distance(model)
+    threshold <- 4 / length(cook_dist)
+    outliers <- which(cook_dist > threshold)
+    
+    # Remove outliers from the dataframe
+    df_cleaned <- df[-outliers, ]
+    
+    # Fit the model again without outliers using the updated formula
+    model_cleaned <- tryCatch(
+      lm(updated_formula, data = df_cleaned),
+      error = function(e) {
+        cat("Error in model fitting after outlier removal:", e$message, "\n")
+        return(NULL)
+      }
+    )
+    
+    # Proceed only if the cleaned model is successfully fitted
+    if (!is.null(model_cleaned)) {
+      # Extract the coefficients, R-squared, and p-values
+      model_summary <- summary(model_cleaned)
+      coefficients <- model_summary$coefficients
+      
+      # Create a result dataframe with all initial variables
+      result_df <- data.frame(term = initial_variables)
+      result_df$coefficient <- 0  # Initialize all coefficients to 0
+      
+      # Find matched terms and assign coefficients
+      matched_terms <- match(rownames(coefficients), result_df$term)
+      
+      # Only assign coefficients where matches were found
+      valid_matches <- !is.na(matched_terms)
+      result_df$coefficient[matched_terms[valid_matches]] <- coefficients[valid_matches, "Estimate"]
+      
+      # Extract p-values and format results
+      result_df$p_value <- 0
+      result_df$p_value[matched_terms[valid_matches]] <- coefficients[valid_matches, "Pr(>|t|)"]
+      
+      # Create formatted strings for display
+      result_df <- result_df %>%
+        mutate(
+          formatted = paste0(
+            sprintf("%.5f", coefficient),
+            " (", sprintf("%.5f", p_value), ifelse(p_value < 0.05, "**", ""), ")"
+          )
+        ) %>%
+        select(-coefficient, -p_value) %>%
+        pivot_wider(names_from = term, values_from = formatted) %>%
+        mutate(outcome = outcome_name, r_squared = model_summary$r.squared) %>%
+        select(outcome, everything())
+      
+      return(result_df)
+    }
+  }
+  
+  return(NULL)
+}
+
+```
+
+
+
+```{r}
+ols_results <- df_full %>%
+  group_by(outcome) %>%
+  do({
+    process_ols_model(., unique(.$outcome))
+  }) %>%bind_rows()
+
+ols_results|>
+  dplyr::select(outcome,r_squared)
+
+ols_results
+```
+
+```{r}
+df_full_new <- df_full %>%
+  dplyr::select(-E_HU,-E_HH,-E_TOTPOP,-E_MINRTY,-medinc)
+
+names(df_full_new)
+```
+
+```{r}
+new_formula <- prevalence ~ ozone_8_hour_2015 + no2_annual_1971 + 
+    pm25_annual_2012 + E_POV150 + E_UNEMP + 
+    E_HBURD + E_NOHSDP + E_UNINSUR + E_AGE65 + E_AGE17 + E_DISABL + 
+    E_SNGPNT + E_LIMENG + E_MUNIT + E_MOBILE + E_CROWD + 
+    E_NOVEH + E_GROUPQ + E_DAYPOP + E_NOINT + medren + medmor + plu+own + white_percent
+```
+
+## Feauture Selection
+
+```{R}
+remove_outliers <- function(df) {
+  
+  model <- lm(new_formula, data = df)
+  
+  # Calculate Cook's distance
+  cook_dist <- cooks.distance(model)
+  threshold <- 4 / length(cook_dist)
+  outliers <- which(cook_dist > threshold)
+  
+  # Remove outliers from the dataframe
+  df_cleaned <- df[-outliers, ]
+  
+  return(df_cleaned)
+}
+```
+
+
+### Lasso
+
+```{r}
+library(glmnet)
+df_full$outcome <- as.factor(df_full$outcome)
+
+lasso_results <- df_full_new%>%
+  group_by(outcome) %>%
+  do({
+    # Remove outliers for the current group
+    df_group <- remove_outliers(.)
+    
+    # Prepare data for LASSO
+    X <- as.matrix(df_group[, 4:28])  # Adjust index as needed
+    y <- df_group$prevalence
+    
+    # Scale predictors
+    X_scaled <- scale(X)
+    y_scaled <- scale(y)
+    
+    # Fit LASSO model with cross-validation to find the best lambda
+    cv_fit <- cv.glmnet(X_scaled, y_scaled, alpha = 1, standardize = FALSE)
+    
+    # Extract coefficients at the optimal lambda (lambda.min)
+    coefs <- coef(cv_fit, s = "lambda.min")
+    
+    # Convert coefficients to a data frame
+    data.frame(feature = rownames(coefs), coefficient = as.numeric(coefs))
+  })
+
+# View the results
+head(lasso_results)
+```
+
+```{r,fig.width=20,fig.height=12}
+lasso_coefficients_df <- lasso_results %>%
+  mutate(is_zero = coefficient == 0)
+
+# Create the heatmap
+lasso_map <- ggplot(lasso_coefficients_df, aes(x = feature, y = outcome, fill = coefficient)) +
+  geom_tile(color = "white") +  # Base heatmap
+  scale_fill_viridis_c(option = "viridis", na.value = "grey",  # Use viridis color scale and grey for zeros
+                       limits = c(min(lasso_coefficients_df$coefficient, na.rm = TRUE), 
+                                  max(lasso_coefficients_df$coefficient, na.rm = TRUE)), 
+                       name = "Coefficient") +
+  # Add a border around cells with zero coefficients
+  geom_tile(data = lasso_coefficients_df %>% filter(is_zero), color = "black", size = 1.2, fill = "grey") +  # Fill grey for zero coefficients
+  theme_minimal() + 
+  theme(axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.x = element_text(size = 10,angle = 45, vjust = 1, hjust = 1),   
+    axis.text.y = element_text(size = 10),   
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5)) +
+  labs(title = "Heatmap of Coefficients of Each Feature for Each Health Outcome after Lasso (with 0 in grey)",
+       x = "Feature", y = "Outcome") +
+  coord_fixed()
+
+lasso_map 
+ggsave("Plots/lasso_coefficients.png",plot = lasso_map,width = 20,height = 12,dpi = 600)
+```
+
+### All-subset regression
+
+```{R}
+library(leaps)
+perform_all_subset_regression <- function(outcome_var, data) {
+  # Filter data for the current outcome
+  outcome_data <- data %>% 
+    filter(outcome == outcome_var)%>%
+    remove_outliers()
+  # Define the formula for the regression model
+  formula <- new_formula
+  
+  # Perform all-subset regression
+  model <- regsubsets(formula, data = outcome_data, nbest = 1)
+  
+  # Get model summary
+  summary_model <- summary(model)
+  
+  # Extract R-squared values and corresponding best models
+  r2_values <- summary_model$rsq
+  best_r2_index <- which.max(r2_values)
+  best_model <- summary_model$which[best_r2_index, ]
+  best_r2 <- r2_values[best_r2_index]
+  
+  # Return a list with the best model and R-squared value
+  list(best_model = best_model, best_r2 = best_r2)
+}
+```
+
+```{r}
+library(purrr)
+outcome_vars <- unique(df_full$outcome)
+results <- map(outcome_vars, ~ perform_all_subset_regression(., df_full))
+```
+
+```{r}
+convert_to_tibble <- function(outcome, result) {
+  # Extract best model and R²
+  best_model <- result$best_model
+  best_r2 <- result$best_r2
+  
+  # Create tibble
+  tibble(
+    outcome = outcome,
+    feature = names(best_model),
+    is_zero = !best_model,
+    r_squared = best_r2
+  ) |>
+    filter(feature != '(Intercept)')
+}
+
+# Combine all results into a single tibble
+all_subset_results_df <- bind_rows(
+  mapply(
+    convert_to_tibble, 
+    outcome_vars, 
+    results, 
+    SIMPLIFY = FALSE
+  )
+)
+
+print(all_subset_results_df)
+```
+
+```{R}
+features_all_subset <- all_subset_results_df %>%
+  filter(is_zero == FALSE)
+
+formulas_all_subset <-  features_all_subset|>
+  group_by(outcome) %>%
+  summarize(formula = paste("prevalence ~", paste(feature, collapse = " + "))) 
+
+head(formulas_all_subset)
+```
+
+```{r,fig.width=20,fig.height=12}
+all_subset_reg_map <- ggplot(all_subset_results_df, aes(x = feature, y = outcome, fill = is_zero)) +
+  geom_tile(color = "white") +  # Base heatmap
+  scale_fill_manual(values = c("TRUE" = "grey", "FALSE" = "red"),  # Use red for FALSE and grey for TRUE
+                    name = "Coefficient is zero") +
+  theme_minimal() + 
+  theme(axis.title.x = element_text(size = 14, face = "bold"),  
+        axis.title.y = element_text(size = 14, face = "bold"),  
+        axis.text.x = element_text(size = 10, angle = 45, vjust = 1, hjust = 1),   
+        axis.text.y = element_text(size = 10),   
+        plot.title = element_text(size = 16, face = "bold", hjust = 0.5)) +
+  labs(title = "Heatmap of Coefficients for Each Outcome and Feature after all-subset regression (with 0 in grey)",
+       x = "Feature", y = "Outcome") +
+  coord_fixed()
+
+all_subset_reg_map
+ggsave("Plot/all_subset_reg.png",all_subset_reg_map,height = 12,width = 20,dpi= 600)
+```
+
+### Simulated Annealing (SA)
+
+```{r}
+sa_feature_selection <- function(data) {
+  
+  data_clean <- remove_outliers(data)
+  # Define predictors and response
+  predictors <- data_clean[,-which(colnames(data_clean) %in% c("outcome", "prevalence", "locationid"))] 
+  response <- data_clean$prevalence # Define the response variable
+  
+  # Define control for Simulated Annealing
+  sa_control <- safsControl(
+    functions = caretSA,   # Ensure caretFuncs has the required functions
+    method = "cv",            # 5-fold cross-validation
+    number = 5
+  )
+  
+  # Perform SA Feature Selection
+  set.seed(123)
+  sa_results <- safs(
+    x = predictors, 
+    y = response,
+    safsControl = sa_control,
+    iters = 100,
+    method = "lm"  
+  )
+  # Return the optimal variables
+  return(sa_results$optVariables)
+}
+```
+
+```{r,warning=FALSE}
+df_full_grouped <- df_full_new%>%
+  group_by(outcome)
+
+sa_selected_features <- df_full_grouped %>%
+  group_modify(~ tibble(selected_features = list(sa_feature_selection(.))))
+
+df_sa_selected_feature <- sa_selected_features |>
+  unnest_longer(selected_features)
+
+print(df_sa_selected_feature)
+```
+
+## Feature selection evaluation
+
+### All-subset
+
+```{R}
+all_subset_r2 <- all_subset_results_df|>
+  dplyr::select(outcome,r_squared)|>
+  distinct()|>
+  left_join(ols_results,by = 'outcome')|>
+  dplyr::select(outcome,r_squared.y,r_squared.x)|>
+  rename(r_squared_all_subset = r_squared.x,
+         r_squared_ols = r_squared.y)
+
+all_subset_r2
+```
+
+### SA
+
+```{r}
+sa_feature_results <- read.csv("Data/Outcomes/SA feature selection (2).csv")
+
+head(sa_feature_results)
+```
+
+```{r}
+formulas_sa <- sa_feature_results %>%
+  group_by(outcome) %>%
+  summarize(formula = paste("prevalence ~", paste(selected_features, collapse = " + "))) 
+
+head(formulas_sa)
+```
+
+```{r}
+outcomes <- unique(df_full$outcome)
+
+r_squared_results_sa <- data.frame(outcome = character(), adj_R_squared = numeric(), stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+  # Subset data for the current outcome
+  subset_df_sa <- df_full %>% filter(outcome == !!outcome)|>remove_outliers()
+  
+  # Get the corresponding formula from the formula table
+  formula_string_sa<- formulas_sa$formula[formulas_sa$outcome == outcome]
+  
+  # Convert the formula string to a formula object
+  formula_sa <- as.formula(formula_string_sa)
+  
+  # Fit the linear regression model
+  model_sa <- lm(formula_sa, data = subset_df_sa)
+  
+  # Extract R-squared value
+  r_squared_sa <- summary(model_sa)$adj.r.squared
+  
+  # Store the R-squared value in the results data frame
+  r_squared_results_sa <- rbind(r_squared_results_sa, data.frame(outcome = outcome, SA_adj_R_squared = r_squared_sa))
+}
+
+# Print the R-squared results
+print(r_squared_results_sa)
+```
+
+
+### GA
+
+```{r}
+ga_feature_results <- read.csv("Data/Outcomes/GA Selection Long.csv")
+
+head(ga_feature_results)
+```
+
+```{r}
+formulas_ga <- ga_feature_results %>%
+  group_by(outcome) %>%
+  summarize(formula = paste("prevalence ~", paste(selected_features, collapse = " + "))) 
+
+head(formulas_ga)
+```
+
+```{r}
+outcomes <- unique(df_full$outcome)
+
+r_squared_results_ga <- data.frame(outcome = character(), adj_R_squared = numeric(), stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+  # Subset data for the current outcome
+  subset_df_ga <- df_full %>% filter(outcome == !!outcome)
+  
+  # Get the corresponding formula from the formula table
+  formula_string_ga<- formulas_ga$formula[formulas_ga$outcome == outcome]
+  
+  # Convert the formula string to a formula object
+  formula_ga <- as.formula(formula_string_ga)
+  
+  # Fit the linear regression model
+  model_ga <- lm(formula_ga, data = subset_df_ga)
+  
+  # Extract R-squared value
+  r_squared_ga <- summary(model_ga)$adj.r.squared
+  
+  # Store the R-squared value in the results data frame
+  r_squared_results_ga <- rbind(r_squared_results_ga, data.frame(outcome = outcome, GA_adj_R_squared = r_squared_ga))
+}
+
+# Print the R-squared results
+print(r_squared_results_ga)
+```
+
+```{r}
+r2_feature_selection <- all_subset_r2|>
+  left_join(r_squared_results_sa,by = "outcome")|>
+  left_join(r_squared_results_ga,by = "outcome")
+  
+r2_feature_selection
+```
+
+
+
+
+
+
+

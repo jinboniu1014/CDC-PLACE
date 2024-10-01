@@ -1,0 +1,145 @@
+---
+title: "Geo weighted models"
+author: "Jinbo Niu"
+date: "2024-09-10"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{R}
+library(tidyverse)
+library(spgwr)
+library(sp)
+library(car)
+```
+
+```{R}
+calculateR2 <- function(yPred, Y){ 
+  ssE <- sum((yPred-Y)**2)
+  ssT <- sum((Y - mean(Y))**2)
+  ssM <- sum((yPred - mean(Y))**2)
+  R2 <- ssM / ssT
+  return(R2)
+}
+
+calculate_mse <- function(predicted_values,actual_values) {
+  # Calculate squared errors
+  squared_errors <- (actual_values - predicted_values)^2
+  
+  # Calculate mean squared error
+  mse <- mean(squared_errors)
+  
+  return(mse)
+}
+
+```
+
+```{r}
+df_geo <- read.csv("Data/df_geo.csv")|>na.omit()
+head(df_geo)
+```
+
+```{r}
+formulas <- read.csv("Data/Outcomes/formulas.csv")
+formulas
+```
+
+## GWR Bandwidth
+
+```{r}
+bandwidths_df <- data.frame(outcome = character(), bandwidth = numeric(), stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+  cat("Calculating optimal bandwidth for outcome:", outcome, "\n")
+  
+  # Filter data for the current outcome
+  outcome_data <- df_geo|>
+    filter(outcome == outcome)|>
+    na.omit()
+  
+  formula_row <- formulas[formulas$outcome == outcome, ]
+  formula <- as.formula(formula_row$formula[1])
+  
+  y <- outcome_data$prevalence
+  X <- outcome_data[,5:37]
+  coords <- outcome_data[, c('X', 'Y')]
+  
+  # Convert coordinates to a matrix
+  coords_matrix <- as.matrix(coords)
+
+  # Select the optimal bandwidth for GWR
+  gwr_bandwidth <- gwr.sel(formula, data = outcome_data, coords = coords_matrix, adapt = FALSE)
+  
+  cat("Optimal bandwidth for", outcome, "is:", gwr_bandwidth, "\n")
+  
+  # Append the outcome and bandwidth to the data frame
+  bandwidths_df <- rbind(bandwidths_df, data.frame(outcome = outcome, bandwidth = gwr_bandwidth, stringsAsFactors = FALSE))
+}
+
+# Display the final data frame
+print(bandwidths_df)
+```
+
+```{r}
+# Select the optimal bandwidth for GWR
+asthma_gwr_bandwidth <- gwr.sel(prevalence ~ pm25_annual_2012 + E_TOTPOP + E_HU 
+                                + E_HH + E_POV150 + 
+    E_UNEMP + E_HBURD + E_UNINSUR + E_AGE65 + E_AGE17 + E_DISABL + 
+    E_LIMENG + E_MINRTY + E_MUNIT + E_CROWD + E_NOVEH + E_GROUPQ + 
+    E_NOINT + E_AFAM + E_HISP + E_ASIAN + E_AIAN + E_NHPI + E_TWOMORE, 
+    data = asthma_data, coords = coords_matrix_asthma, adapt = FALSE)
+  
+cat("Optimal bandwidth for asthma is:", asthma_gwr_bandwidth, "\n")
+```
+
+
+
+```{r}
+bandwidth <- read.csv("Data/Outcomes/bandwidth.csv")
+head(bandwidth)
+```
+
+```{R}
+gwr_df <- data.frame(outcome = character(), R2 = numeric(), 
+                                            MSE = numeric() , 
+                                            stringsAsFactors = FALSE)
+
+for (outcome in outcomes) {
+  cat("GWR for outcome:", outcome, "\n")
+  
+  # Filter data for the current outcome
+  outcome_data <- df_geo[df_geo$outcome == outcome, ]
+  
+  #formula
+  formula_row <- formulas[formulas$outcome == outcome, ]
+  formula <- as.formula(formula_row$formula)
+  
+  #bandwidth
+  bandwidth_row <- bandwidth[bandwidth$outcome == outcome, ]
+  bandwidth_outcome <- bandwidth_row$bandwidth
+  
+  #coordinates
+  coord_outcome <- as.matrix(outcome_data[c('X','Y')])
+
+  #modeling
+  model_outcome <- gwr(formula,data = outcome_data, coords = coord_outcome,
+                 bandwidth = bandwidth_outcome,predictions = TRUE)
+  
+  #metrics
+  model_y_pred <- model_outcome$SDF$pred[!is.na(model_outcome$SDF$pred)]
+  gwr_R2 <- calculateR2(model_y_pred,outcome_data$prevalence)
+  gwr_mse <- calculate_mse(model_y_pred,outcome_data$prevalence)
+
+  # Append the outcome and bandwidth to the data frame
+  gwr_df <- rbind(gwr_df, data.frame(outcome = outcome, R2 = gwr_R2, 
+                                            MSE = gwr_mse , 
+                                            stringsAsFactors = FALSE))
+}
+
+# Display the final data frame
+print(gwr_df)
+```
+

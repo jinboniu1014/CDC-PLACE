@@ -1,0 +1,730 @@
+---
+title: "Scaled bivariate Analysis"
+author: "Jinbo Niu"
+date: "2024-08-08"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{R}
+library(tidyverse)
+library(cowplot)
+library(gridExtra)
+library(pargasite)
+library(broom)
+library(sociome)
+library(tidycensus)
+library(tigris)
+library(sf)
+library(reshape2)
+```
+
+
+```{r}
+health_outcome <- read.csv("2023 CDC health outcome.csv")|>
+  rename(prevalence = data_value,
+         outcome = short_question_text)|>
+  dplyr::select(-X,-totalpopulation)
+glimpse(health_outcome)
+```
+
+```{R}
+svi_2020_data <- read.csv("Data/SVI_2020_US (1).csv")
+svi_2020 <- svi_2020_data|>
+  dplyr::select(LOCATION,FIPS,starts_with("RPL"))
+glimpse(svi_2020)
+```
+
+```{R}
+svi_health_outcome <- health_outcome|>
+  left_join(svi_2020,by = c("locationid" = "FIPS"))
+
+head(svi_health_outcome)
+```
+
+```{r}
+cor_svi_health_outcome <- svi_health_outcome|>
+  dplyr::select(outcome,prevalence,starts_with("RPL"))
+
+head(cor_svi_health_outcome)
+```
+
+## Scaled Bivariate analysis
+
+### Simple Linear Regression
+
+#### SVI
+
+```{R}
+svi_clean_data <- cor_svi_health_outcome %>%
+  drop_na(prevalence, RPL_THEME1, RPL_THEME2, RPL_THEME3, RPL_THEME4, RPL_THEMES)
+```
+
+```{R}
+scale_sviS_slr_results <- svi_clean_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(RPL_THEMES), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, RPL_THEMES_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(scale_sviS_slr_results)
+
+```
+
+```{R}
+svi1_slr_results1 <- svi_clean_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(RPL_THEME1), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, RPL_THEME1_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(svi1_slr_results1)
+
+```
+
+
+```{R}
+svi2_slr_results2 <- svi_clean_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(RPL_THEME2), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, RPL_THEME2_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(svi2_slr_results2)
+
+```
+
+```{R}
+svi3_slr_results3 <- svi_clean_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(RPL_THEME3), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, RPL_THEME3_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(svi3_slr_results3)
+
+```
+
+```{r}
+svi4_slr_results4 <- svi_clean_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(RPL_THEME4), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, RPL_THEME4_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(svi4_slr_results4)
+```
+
+
+### Demographic data
+
+```{r}
+acs_data <- read.csv("Data/ACS full.csv")|>
+  dplyr::select(GEOID,medinc,white_percent)|>
+  distinct()
+
+head(acs_data)
+```
+
+```{r}
+health_outcome$locationid <- as.numeric(health_outcome$locationid)
+acs_prevalence <- health_outcome|>
+  dplyr::select(outcome,prevalence,locationid)|>
+  left_join(acs_data,by = c("locationid" = "GEOID"))|>
+  filter(!is.na(medinc))|>
+  filter(!is.na(medinc))
+
+head(acs_prevalence)
+```
+
+```{R}
+medinc_slr_results <- acs_prevalence %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(medinc), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, medinc_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(medinc_slr_results)
+
+```
+
+```{r}
+white_slr_results <- acs_prevalence %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(white_percent), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, white_percent_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(white_slr_results)
+
+```
+
+## ADI data
+
+```{r}
+tract_adi <- readRDS("Data/tract_adi.RDS")|>
+  mutate(GEOID = as.numeric(paste0(STATEFP, COUNTYFP,TRACTCE))) # I am using the ADI tract level data I have wrangled for previous works
+
+head(tract_adi)
+```
+
+```{r}
+tract_adi_prevalence <- tract_adi|>
+  mutate(GEOID = as.numeric(paste0(STATEFP, COUNTYFP,TRACTCE)))|>
+  dplyr::select(-STATEFP,-COUNTYFP) |>
+  right_join(health_outcome, by = c("GEOID" = "locationid"))|>
+  rename(ADI = tract_adi_value)|>
+  dplyr::select(outcome,prevalence,ADI,GEOID)
+
+head(tract_adi_prevalence)
+```
+
+```{R}
+adi_slr_results <- tract_adi_prevalence %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(ADI), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, ADI_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(adi_slr_results)
+```
+
+
+## Air pollutant data
+
+```{r}
+library(raster)
+raqs::set_aqs_user("jn1014@upenn.edu",'boleram69')
+```
+
+```{R}
+ozone_raster <- pargasite::create_raster(44201,
+data_field = c("arithmetic_mean"),event_filter = c( "Events Excluded"),
+year = 2021, by_month = FALSE)
+
+no2_raster <- pargasite::create_raster(42602,
+data_field = c("arithmetic_mean"),event_filter = c( "Events Excluded"),
+year = 2021, by_month = FALSE)
+
+pm2.5_raster <- pargasite::create_raster(88101,
+data_field = c("arithmetic_mean"),event_filter = c( "Events Excluded"),
+year = 2021, by_month = FALSE)
+```
+
+```{r}
+health_outcome_sf <- health_outcome|>
+  st_as_sf(coords = c("longitude","latitude"), crs = 4269) |>
+  st_transform(crs = st_crs(pm2.5_raster))
+
+pollution_2021 <- c(ozone_raster, no2_raster, pm2.5_raster)
+
+pollution_outcome_data <- st_join(health_outcome_sf, st_as_sf(pollution_2021))
+
+pollution_outcome_data|>
+  filter(!is.na(pm25_annual_2012))|>
+  filter(!is.na(prevalence))
+
+head(pollution_outcome_data)
+#write_rds(pollution_outcome_data,"Data/air_pollutant_2021.rds")
+```
+
+```{R}
+pm25_slr_results <- pollution_outcome_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(pm25_annual_2012), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, pm25_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(pm25_slr_results)
+```
+
+```{R}
+no2_slr_results <- pollution_outcome_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(no2_annual_1971), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, no2_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(no2_slr_results)
+```
+
+```{R}
+ozone_slr_results <- pollution_outcome_data %>%
+  group_by(outcome) %>%
+  do({
+    model <- lm(scale(prevalence) ~ scale(ozone_8_hour_2015), data = .)
+    
+    # Get the coefficients and p-values
+    coefs <- tidy(model) %>%
+      filter(term != "(Intercept)") %>%
+      dplyr::select(term, estimate, p.value) %>%
+      pivot_wider(names_from = term, values_from = c(estimate, p.value), names_prefix = "")
+
+    # Get the intercept
+    intercept <- tidy(model) %>%
+      filter(term == "(Intercept)") %>%
+      pull(estimate)
+    
+    # Get the R-squared value
+    r_squared <- summary(model)$r.squared
+
+    # Combine the results into a single data frame
+    result_df <- bind_cols(
+      data.frame(outcome = unique(.$outcome)),
+      coefs,
+      data.frame(intercept = intercept, ozone_r_squared = r_squared)
+    )
+    
+    result_df
+  })
+
+print(ozone_slr_results)
+```
+
+
+```{r}
+estimate_outcomes <- scale_sviS_slr_results|>
+  left_join(scale_sviS_slr_results,by = "outcome")|>
+  left_join(svi1_slr_results1,by = "outcome")|>
+  left_join(svi2_slr_results2,by = "outcome")|>
+  left_join(svi3_slr_results3,by = "outcome")|>
+  left_join(svi4_slr_results4,by = "outcome")|>
+  left_join(adi_slr_results,by = "outcome")|>
+  left_join(white_slr_results,by = "outcome")|>
+  left_join(medinc_slr_results,by = "outcome")|>
+  left_join(adi_slr_results,by = "outcome")|>
+  left_join(pm25_slr_results,by = "outcome")|>
+  left_join(ozone_slr_results,by = "outcome")|>
+  left_join(no2_slr_results,by = "outcome")
+
+estimate_data <- estimate_outcomes|>
+  dplyr::select(outcome,starts_with("estimate"),starts_with("p.value"))|>
+  dplyr::select(-`estimate_scale(ADI).x`,-`p.value_scale(ADI).x`)
+
+head(estimate_data)
+#write.csv(estimate_data,"Data/SLR Coefficient.csv")
+```
+
+```{R}
+data_est <- estimate_data
+
+#estimate_columns <- grep("estimate", names(data_est), value = TRUE)
+#p_value_columns <- grep("p.value", names(data_est), value = TRUE)
+
+df_est <- data_est %>%
+  dplyr::select(outcome, starts_with('estimate')) %>%
+  gather(key = "metric", value = "estimate", -outcome)|>
+  mutate(variable = gsub(".*\\(([^)]+)\\).*", "\\1",metric))|>
+  mutate(key = paste(outcome,variable))
+
+df_pval <- data_est %>%
+  dplyr::select(outcome, starts_with("p.value")) %>%
+  gather(key = "metric", value = "p_value", -outcome)|>
+  mutate(variable = gsub(".*\\(([^)]+)\\).*", "\\1",metric))|>
+  mutate(key = paste(outcome,variable))
+
+estimate_df_combined <- df_est|>
+  left_join(df_pval, by = "key")|>
+  dplyr::select(outcome.x, variable.x, estimate,p_value)|>
+  distinct()
+
+view(estimate_df_combined)
+write.csv(estimate_df_combined,"Data/Outcomes/estimate_df.csv")
+```
+
+
+```{r,fig.width =16, fig.height=12}
+estimate_heatmap <- ggplot(estimate_df_combined, aes(x = outcome.x, y = variable.x)) +
+  geom_tile(aes(fill = estimate), color = "black") +  
+  scale_fill_viridis_c(limits = c(-1, 1), na.value = "gray", option = "viridis") + 
+  geom_tile(data = estimate_df_combined %>% filter(p_value > 0.05), aes(x = outcome.x, y = variable.x), fill = "gray", color = "black") + 
+  coord_fixed() +  
+  theme(
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.x = element_text(size = 10, angle = 45, hjust = 1, vjust = 1),  
+    axis.text.y = element_text(size = 10),   
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    panel.background = element_blank()
+  ) +
+  labs(
+    x = "Outcome", 
+    y = "Predictors", 
+    fill = "Coefficient (-1 to 1)", 
+    title = "The Heatmap of Coefficients for Each Scaled Simple Linear Regression Model (with grey for p > 0.05)"
+  )
+estimate_heatmap
+ggsave("Plots/heatmap_coefficient.png", plot = estimate_heatmap, width = 16, height = 12, dpi = 600)
+```
+
+```{R}
+r2_data <- estimate_outcomes|>
+  dplyr::select(outcome,ends_with("_r_squared"),starts_with("p.value"))
+head(r2_data)
+```
+
+```{r}
+data <- r2_data
+
+#r_squared_columns <- grep("_r_squared", names(data), value = TRUE)
+#p_value_columns <- grep("p.value", names(data), value = TRUE)
+
+# Create long format data frame for r_squared and p_values
+df_r2 <- data %>%
+  dplyr::select(outcome, ends_with("_r_squared")) %>%
+  gather(key = "metric", value = "r_squared", -outcome)|>
+  mutate(variable = gsub("^(.*)_r.*$", "\\1", metric))|>
+  mutate(key = paste(outcome,variable))
+
+df_pval_r2 <- data %>%
+  dplyr::select(outcome, starts_with("p.value")) %>%
+  gather(key = "metric", value = "p_value", -outcome)|>
+  mutate(variable = gsub(".*\\(([^)]+)\\).*", "\\1",metric))|>
+  mutate(key = paste(outcome,variable))
+
+r2_df_combined <- df_r2|>
+  left_join(df_pval_r2, by = "key")|>
+  dplyr::select(outcome.x, variable.x, r_squared,p_value)|>
+  distinct()
+
+view(r2_df_combined)
+```
+
+```{r,fig.width =16, fig.height=12}
+# Plotting the heatmap
+r2_heatmap <- ggplot(r2_df_combined, aes(x = outcome.x, y = variable.x)) +
+  geom_tile(aes(fill = r_squared), color = "black") +  
+  scale_fill_viridis_c(na.value = "gray", option = "viridis") + 
+  geom_tile(data = r2_df_combined %>% filter(p_value > 0.05), aes(x = outcome.x, y = variable.x), fill = "gray", color = "black") + 
+  coord_fixed() +  
+  theme(
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.y = element_text(size = 10),   
+    axis.text.x = element_text(size = 10, angle = 45, hjust = 1, vjust = 1),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    panel.background = element_blank() 
+    
+  ) +
+  labs(
+    x = "Outcome", 
+    y = "Predictors", 
+    fill = "R-squared", 
+    title = "The Heatmap of R-squared for Each Scaled Simple Linear Regression Model (with grey for p > 0.05)"
+  )
+r2_heatmap
+#ggsave("Plots/heatmap_r2.png",plot = r2_heatmap,width = 16,height = 12,dpi = 600)
+```
+
+### Correlation Analysis
+
+```{R}
+all_data <- pollution_outcome_data|>
+  st_drop_geometry()|>
+  left_join(svi_2020,by = c("locationid" = "FIPS"))|>
+  left_join(tract_adi,by = c('locationid' = "GEOID"))|>
+  left_join(acs_data,by = c('locationid' = "GEOID"))|>
+  dplyr::select(outcome,prevalence,tract_adi_value,RPL_THEMES,ozone_8_hour_2015,
+         pm25_annual_2012,
+         no2_annual_1971,medinc, white_percent)|>
+  rename(
+    Prev = prevalence,
+    ADI = tract_adi_value,
+    SVI = RPL_THEMES,
+    Ozone = ozone_8_hour_2015,
+    NO2 = no2_annual_1971,
+    PM2.5 = pm25_annual_2012,
+    Income = medinc,
+    White = white_percent
+  )
+
+head(all_data,12)
+```
+
+
+```{r}
+library(corrplot)
+combined_top_rows <- data.frame()
+
+outcomes <- unique(all_data$outcome)
+
+for (outcome in outcomes) {
+  # Filter the subset data based on outcome
+  subset_data <- all_data %>% filter(outcome == !!outcome)
+
+  # Select numeric columns, excluding the outcome column
+  subset_data_numeric <- subset_data %>%
+    dplyr::select(-outcome)
+
+  correlation_matrix <- cor(subset_data_numeric, use = "pairwise.complete.obs", method = "spearman")
+
+  top_row <- correlation_matrix[1, ]
+
+  top_row_df <- data.frame(outcome = outcome, variable = names(top_row), value = as.vector(top_row))
+
+  combined_top_rows <- rbind(combined_top_rows, top_row_df)
+}
+
+view(combined_top_rows)
+```
+
+```{r,fig.width= 9,fig.height=9}
+combined_top_rows_filtered <- combined_top_rows %>%
+  dplyr::filter(variable != "Prev")
+
+corrplot <- ggplot(combined_top_rows_filtered, aes(x = outcome, y = variable, fill = value)) +
+  geom_tile() +
+ scale_fill_viridis_c(na.value = "gray", option = "viridis", limits = c(-1, 1), breaks = seq(-1, 1, by = 0.5)) +  # Set color scale step to 0.1
+  labs(title = "Correlations between prevalence and each variable", x = "Outcome", y = "Variable") +
+  theme_minimal() +
+   theme(
+    axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.y = element_text(size = 10),   
+    axis.text.x = element_text(size = 10, angle = 45, hjust = 1, vjust = 1),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    panel.background = element_blank() 
+    
+  )
+corrplot
+#ggsave("Plots/corrplot.png",corrplot,dpi = 300,height = 9,width = 9)
+```
+
+
+
+

@@ -1,0 +1,131 @@
+---
+title: "SA selection plots"
+author: "Jinbo Niu"
+date: "2024-08-31"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{R}
+library(tidyverse)
+data <- read.csv("Data/Outcomes/SA feature selection (2).csv")
+heatmap_data <- with(data, table(outcome, selected_features))
+
+heatmap_data_long <- as.data.frame(as.table(heatmap_data))
+
+heatmap_data_long|>
+  filter(Freq == 0)|>
+  head()
+```
+
+```{r}
+all_features <- c("ozone_8_hour_2015", "no2_annual_1971", "pm25_annual_2012", "E_TOTPOP", "E_HU", "E_HH", 
+                  "E_POV150", "E_UNEMP", "E_HBURD", "E_NOHSDP", "E_UNINSUR", "E_AGE65", "E_AGE17", "E_DISABL", 
+                  "E_SNGPNT", "E_LIMENG", "E_MINRTY", "E_MUNIT", "E_MOBILE", "E_CROWD", "E_NOVEH", "E_GROUPQ", 
+                  "E_DAYPOP", "E_NOINT", "medren","medmor","own","plu","white_percent")
+
+expanded_data <- expand.grid(outcome = unique(heatmap_data_long$outcome), selected_features = all_features)
+
+heatmap_data_long <- merge(expanded_data, heatmap_data_long, by = c("outcome", "selected_features"), all.x = TRUE)
+heatmap_data_long$Freq[is.na(heatmap_data_long$Freq)] <- 0
+
+```
+
+```{R,fig.width = 20,fig.height = 12}
+SA_plot <- ggplot(heatmap_data_long, aes(x = selected_features, y = outcome)) +
+  geom_tile(aes(fill = factor(Freq)), color = "white") +
+  scale_fill_manual(
+    name = "Feature Selected",  # Set the legend title
+    values = c("0" = "grey", "1" = "red"),  # Define the colors
+    labels = c("0" = "No", "1" = "Yes")  # Define the labels
+  ) +
+  theme_minimal() +
+  labs(x = "Selected Feature", y = "Outcome", title = "Heatmap of Selected Features for Each Outcome by SA") +
+  theme_minimal() + 
+  theme(axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.x = element_text(size = 10,angle = 45, vjust = 1, hjust = 1),   
+    axis.text.y = element_text(size = 10),   
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+SA_plot
+ggsave("Plot/SA_plot.png",plot = SA_plot,width = 20,height = 12,dpi = 600)
+```
+
+
+```{r}
+rfe_data <- read.csv("Data/rfe outcomes.csv")
+heatmap_data_rfe <- with(rfe_data, table(outcome, selected_features))
+heatmap_data_long_rfe <- as.data.frame(as.table(heatmap_data_rfe))
+
+expanded_data_rfe <- expand.grid(outcome = unique(heatmap_data_long_rfe$outcome), selected_features = all_features)
+
+# Merge with the original data, filling missing combinations with 0
+heatmap_data_long_rfe <- merge(expanded_data_rfe, heatmap_data_long_rfe, by = c("outcome", "selected_features"), all.x = TRUE)
+heatmap_data_long_rfe$Freq[is.na(heatmap_data_long_rfe$Freq)] <- 0
+```
+
+```{R,fig.width = 20,fig.height = 12}
+rfe_plot <- ggplot(heatmap_data_long_rfe, aes(x = selected_features, y = outcome)) +
+  geom_tile(aes(fill = factor(Freq)), color = "white") +
+  scale_fill_manual(
+    name = "Feature Selected",  # Set the legend title
+    values = c("0" = "grey", "1" = "red"),  # Define the colors
+    labels = c("0" = "No", "1" = "Yes")  # Define the labels
+  ) +
+  theme_minimal() +
+  labs(x = "Selected Feature", y = "Outcome", title = "Heatmap of Selected Features for Each Outcome by RFE") +
+  theme_minimal() + 
+  theme(axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.x = element_text(size = 10,angle = 45, vjust = 1, hjust = 1),   
+    axis.text.y = element_text(size = 10),   
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+rfe_plot
+ggsave("Plots/RFE_plot.png",plot = rfe_plot,width = 20,height = 12,dpi = 600)
+```
+
+### Genetic Algorithm (GA)
+
+```{r}
+ga_result <- read.csv("Data/Outcomes/GA Selection Long.csv")
+head(ga_result)
+```
+
+```{R}
+heatmap_data_ga <- with(ga_result, table(outcome, selected_features))
+
+heatmap_data_long_ga <- as.data.frame(as.table(heatmap_data_ga))
+```
+
+```{r}
+expanded_data_ga <- expand.grid(outcome = unique(heatmap_data_long_ga$outcome), selected_features = all_features)
+
+heatmap_data_long <- merge(expanded_data_ga, heatmap_data_long_ga, by = c("outcome", "selected_features"), all.x = TRUE)
+heatmap_data_long_ga$Freq[is.na(heatmap_data_long_ga$Freq)] <- 0
+```
+
+```{R,fig.width = 20,fig.height = 12}
+GA_plot <- ggplot(heatmap_data_long_ga, aes(x = selected_features, y = outcome)) +
+  geom_tile(aes(fill = factor(Freq)), color = "white") +
+  scale_fill_manual(
+    name = "Feature Selected",  
+    values = c("0" = "grey", "1" = "red"),  
+    labels = c("0" = "No", "1" = "Yes") 
+  ) +
+  theme_minimal() +
+  labs(x = "Selected Feature", y = "Outcome", title = "Heatmap of Selected Features for Each Outcome by GA") +
+  theme_minimal() + 
+  theme(axis.title.x = element_text(size = 14, face = "bold"),  
+    axis.title.y = element_text(size = 14, face = "bold"),  
+    axis.text.x = element_text(size = 10,angle = 45, vjust = 1, hjust = 1),   
+    axis.text.y = element_text(size = 10),   
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5))
+
+GA_plot
+ggsave("Plot/GA_plot.png",plot = GA_plot,width = 20,height = 12,dpi = 600)
+```
